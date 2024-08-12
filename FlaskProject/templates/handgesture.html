@@ -60,8 +60,6 @@
         videoCanvas.height = video.videoHeight;
         videoContext.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height);
       }
-
-      requestAnimationFrame(updateCanvas); // Continuously update the canvas
     }
 
     function drawPrediction() {
@@ -73,25 +71,8 @@
 
       // Draw the prediction message on the overlay canvas
       overlayContext.font = "30px Arial";
-      overlayContext.fillStyle = "red";
+      overlayContext.fillStyle = "green";
       overlayContext.fillText(predictionMessage, 50, 50);
-    }
-
-    function captureImage() {
-      var video = document.querySelector("#videoElement");
-      var hiddenCanvas = document.querySelector("#hiddenCanvasElement");
-      var hiddenContext = hiddenCanvas.getContext("2d");
-
-      hiddenCanvas.width = video.videoWidth;
-      hiddenCanvas.height = video.videoHeight;
-      hiddenContext.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
-
-      var dataURL = hiddenCanvas.toDataURL("image/png");
-      document.getElementById('capturedImage').value = dataURL;
-
-      console.log("Captured Image Data URL:", dataURL);  // Debugging: Check the full base64 string
-
-      document.querySelector('.UploadButton').disabled = false;
     }
 
     function captureFrame() {
@@ -145,12 +126,48 @@
       });
     }
 
+    function captureImage() {
+      var video = document.querySelector("#videoElement");
+      var hiddenCanvas = document.querySelector("#hiddenCanvasElement");
+      var hiddenContext = hiddenCanvas.getContext("2d");
+
+      if (!isUploadEnabled) {
+        // Capture the image and enable upload
+        hiddenCanvas.width = video.videoWidth;
+        hiddenCanvas.height = video.videoHeight;
+        hiddenContext.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+        var dataURL = hiddenCanvas.toDataURL("image/png");
+        document.getElementById('capturedImage').value = dataURL;
+
+        console.log("Captured Image Data URL:", dataURL);  // Debugging: Check the full base64 string
+
+        document.querySelector('.UploadButton').disabled = false;
+        isUploadEnabled = true;
+
+        // Stop canvas updates and frame capture
+        clearInterval(updateCanvasInterval);
+        clearInterval(captureFrameInterval);
+      } else {
+        // Disable upload and resume canvas updates
+        document.querySelector('.UploadButton').disabled = true;
+        isUploadEnabled = false;
+
+        // Resume canvas updates and frame capture
+        updateCanvasInterval = setInterval(updateCanvas, 30);  // 30ms interval for smooth video
+        captureFrameInterval = setInterval(captureFrame, 1000);  // Capture frame every 1000ms
+      }
+    }
+    function saveName() {
+      var name = document.getElementById('modalUserName').value;
+      document.getElementById('userName').value = name;
+      $('#nameModal').modal('hide');
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
+      $('#nameModal').modal('show');
       startWebcam().then(() => {
         // Start updating the video canvas to display the video continuously
-        updateCanvas();
-
-        // Start capturing frames for prediction at a slower rate
         updateCanvasInterval = setInterval(updateCanvas, 30);  // 30ms interval for smooth video
         captureFrameInterval = setInterval(captureFrame, 1000);  // Capture frame every 1000ms
       }).catch(error => {
@@ -176,7 +193,7 @@
       <button type="submit" class="UploadButton" style="margin-top:-25px;" disabled>Upload</button>
     </div>
     {% if prediction %}
-    <h1 class="PredictionResult">Prediction Result: {{ prediction }}</h1>
+    <h1 class="PredictionResult" style="margin-top:5vb;">Prediction Result: {{ prediction }}</h1>
     {% endif %}
     {% if prediction_second_model %}
     <h1 class="PredictionResult">Prediction Result: {{ prediction_second_model }}</h1>

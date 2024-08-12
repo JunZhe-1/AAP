@@ -2,7 +2,7 @@
 {% block title %}Feedback System{% endblock %}
 
 {% block content %}
-<h1 class="display-4">Feedback Analyze</h1>
+<h1 class="display-4" id="commonh1">Feedback Analyze</h1>
 <form method = "POST" enctype="multipart/form-data" action = "/uploadCSV">
         <input type="file" name="file" accept=".csv">
         <input type = "submit" value="Upload">
