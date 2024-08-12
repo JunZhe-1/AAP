@@ -426,6 +426,8 @@ def SentimentForm():
 
 @app.route("/sentiment")
 def sentiment():
+    NaqSentMdl = TFAutoModelForSequenceClassification.from_pretrained("finetuned_model")
+    tokenizer = AutoTokenizer.from_pretrained('distilbert-base-uncased')
     Positive = 0
     Negative = 0
     # Uploaded File Path
