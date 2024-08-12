@@ -8,49 +8,155 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
   <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"></script>
   <link rel="stylesheet" href="../static/main.css">
-  <script>
-    function startWebcam() {
-      var video = document.querySelector("#videoElement");
-      if (navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ video: true })
-          .then(function (stream) {
-            video.srcObject = stream;
-          })
-          .catch(function (error) {
-            console.log("Something went wrong!");
-          });
-      }
+  <style>
+    .video-container {
+      position: relative;
+      width: 300px;
+      height: 200px;
     }
-    setInterval(captureImage,5000)
-      
+    #videoCanvas, #overlayCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none; /* Ensures canvas doesn't capture any mouse events */
+    }
+  </style>
+  <script>
+    let predictionMessage = '';
+    let isUploadEnabled = false;
+    let updateCanvasInterval, captureFrameInterval;
 
+    function startWebcam() {
+      return new Promise((resolve, reject) => {
+        var video = document.querySelector("#videoElement");
+        if (navigator.mediaDevices.getUserMedia) {
+          navigator.mediaDevices.getUserMedia({ video: true })
+            .then(function (stream) {
+              video.srcObject = stream;
+              video.onloadedmetadata = function() {
+                video.play(); // Ensure the video starts playing
+                resolve(); // Resolve the promise when the video metadata is loaded
+              };
+            })
+            .catch(function (error) {
+              console.log("Error accessing webcam:", error);
+              reject(error);
+            });
+        } else {
+          reject(new Error("getUserMedia not supported by this browser."));
+        }
+      });
+    }
+
+    function updateCanvas() {
+      var video = document.querySelector("#videoElement");
+      var videoCanvas = document.querySelector("#videoCanvas");
+      var videoContext = videoCanvas.getContext("2d");
+
+      if (video && videoCanvas && videoContext) {
+        videoCanvas.width = video.videoWidth;
+        videoCanvas.height = video.videoHeight;
+        videoContext.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height);
+      }
+
+      requestAnimationFrame(updateCanvas); // Continuously update the canvas
+    }
+
+    function drawPrediction() {
+      var overlayCanvas = document.querySelector("#overlayCanvas");
+      var overlayContext = overlayCanvas.getContext("2d");
+
+      // Clear the overlay canvas before drawing new text
+      overlayContext.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+      // Draw the prediction message on the overlay canvas
+      overlayContext.font = "30px Arial";
+      overlayContext.fillStyle = "red";
+      overlayContext.fillText(predictionMessage, 50, 50);
+    }
 
     function captureImage() {
       var video = document.querySelector("#videoElement");
-      var canvas = document.querySelector("#canvasElement");
-      var context = canvas.getContext("2d");
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      if(video.paused){
-        video.play();
-        document.querySelector('.UploadButton').disabled = true;
-      }
-      else{video.pause();
-        var dataURL = canvas.toDataURL("image/png");
-      document.getElementById('capturedImage').value = dataURL;
-      document.querySelector('.UploadButton').disabled = false;
-      }
+      var hiddenCanvas = document.querySelector("#hiddenCanvasElement");
+      var hiddenContext = hiddenCanvas.getContext("2d");
 
+      hiddenCanvas.width = video.videoWidth;
+      hiddenCanvas.height = video.videoHeight;
+      hiddenContext.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+      var dataURL = hiddenCanvas.toDataURL("image/png");
+      document.getElementById('capturedImage').value = dataURL;
+
+      console.log("Captured Image Data URL:", dataURL);  // Debugging: Check the full base64 string
+
+      document.querySelector('.UploadButton').disabled = false;
     }
 
-    function saveName() {
-      var name = document.getElementById('modalUserName').value;
-      document.getElementById('userName').value = name;
-      $('#nameModal').modal('hide');
+    function captureFrame() {
+      var video = document.querySelector("#videoElement");
+      var hiddenCanvas = document.querySelector("#hiddenCanvasElement");
+      var hiddenContext = hiddenCanvas.getContext("2d");
+
+      if (!video || !hiddenCanvas || !hiddenContext) {
+        console.error("Error: Video or canvas element not found.");
+        return;
+      }
+
+      hiddenCanvas.width = video.videoWidth;
+      hiddenCanvas.height = video.videoHeight;
+      hiddenContext.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+      // Get the base64-encoded image data for processing
+      const dataUrl = hiddenCanvas.toDataURL('image/jpeg');
+
+      if (dataUrl === "data:,") {
+        console.error("Error: Captured image is empty.");
+        return;
+      }
+
+      console.log("Captured Image Base64:", dataUrl);  // Debugging: Check the full base64 string
+
+      // Send the frame to the server for prediction
+      fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl })
+      })
+      .then(response => {
+        if (!response.ok) {
+          return response.json().then(errorData => { throw new Error(JSON.stringify(errorData)) });
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        predictionMessage = data.message;
+        drawPrediction();  // Update the overlay with the new prediction
+      })
+      .catch(error => {
+        console.error('Error during prediction:', error.message);
+        predictionMessage = "Prediction failed";
+        drawPrediction();  // Update the overlay with the error message
+      });
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-      $('#nameModal').modal('show');
-      startWebcam();
+      startWebcam().then(() => {
+        // Start updating the video canvas to display the video continuously
+        updateCanvas();
+
+        // Start capturing frames for prediction at a slower rate
+        updateCanvasInterval = setInterval(updateCanvas, 30);  // 30ms interval for smooth video
+        captureFrameInterval = setInterval(captureFrame, 1000);  // Capture frame every 1000ms
+      }).catch(error => {
+        console.error("Webcam initialization failed:", error);
+      });
+
       document.querySelector('.CaptureButton').addEventListener('click', captureImage);
     });
   </script>
@@ -59,13 +165,15 @@
   <h1 id="commonh1">Upload file</h1>
   <a href="/" class="homeButton" id="homeButton"><div class="functionCircle">home</div></a>
   <form action="{{ url_for('predict_image') }}" method="POST" enctype="multipart/form-data" class="Upload">
-    <div class="formBlock">
-      <video id="videoElement" width="300vb" height="200vb" autoplay style="display: inline-block;"></video>
-      <canvas id="canvasElement" width="300vb" height="200vb" style="display: none;"></canvas>
+    <div class="formBlock video-container">
+      <video id="videoElement" width="300" height="200" autoplay></video>
+      <canvas id="videoCanvas"></canvas> <!-- Canvas to display video frames -->
+      <canvas id="overlayCanvas"></canvas> <!-- Canvas to display prediction text -->
+      <canvas id="hiddenCanvasElement" width="300" height="200" style="display:none;"></canvas> <!-- Hidden canvas for image capture -->
       <input type="hidden" id="capturedImage" name="capturedImage">
       <input type="hidden" id="userName" name="userName">
-      <button type="button" class="CaptureButton"  style="margin-top:-25vb;">Capture Image</button>
-      <button type="submit" class="UploadButton"  style="margin-top:-25vb;" disabled>Upload</button>
+      <button type="button" class="CaptureButton" style="margin-top:-25px;">Capture Image</button>
+      <button type="submit" class="UploadButton" style="margin-top:-25px;" disabled>Upload</button>
     </div>
     {% if prediction %}
     <h1 class="PredictionResult">Prediction Result: {{ prediction }}</h1>
@@ -93,6 +201,7 @@
       </div>
     </div>
   </div>
+</div>
 
 </body>
 </html>

@@ -10,6 +10,7 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime 
 import base64
 from werkzeug.security import generate_password_hash, check_password_hash
+from google.protobuf.json_format import MessageToDict
 
 from fileinput import filename
 import pandas as pd
@@ -27,6 +28,7 @@ import cv2
 import numpy as np
 from transformers import TFAutoModelForSequenceClassification
 from transformers import AutoTokenizer
+import mediapipe as mp
 
 # nltk
 nltk.download('stopwords')
@@ -78,11 +80,22 @@ UNIFORM_SIZE = (128, 128)
 
 # Mapping of predicted classes to messages for the second model
 gesture_messages = {
-    0: "few minutes",
-    1: "more than 10 minutes",
-    2: "skip the class"
+    0: "not urgent",
+    1: "urgent",
+    2: "very urgent"
 }
 
+# Initialize Mediapipe Hands once
+mpHands = mp.solutions.hands
+hands = mpHands.Hands(
+    static_image_mode=False,
+    min_detection_confidence=0.75,
+    min_tracking_confidence=0.75,
+    max_num_hands=2
+)
+
+# Open webcam once
+webcam = cv2.VideoCapture(0)
 
 # Delay the initialization of NaqSentMdl and tokenizer
 NaqSentMdl = None
@@ -169,6 +182,46 @@ def process_image_for_second_model(img):
     image = np.array(image) / 255.0
     image = np.expand_dims(image, axis=0)
     return image
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    try:
+        # Get the frame from the AJAX request
+        img_data = request.json['image']
+        img_data = base64.b64decode(img_data.split(',')[1])
+        img_np = np.frombuffer(img_data, np.uint8)
+        img = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
+
+        if img is None:
+            raise ValueError("Could not decode image")
+
+        # Process the image (you can reuse your existing processing functions)
+        RGB_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        results = hands.process(RGB_img)
+
+        if results is None:
+            raise ValueError("Failed to process image with Mediapipe")
+
+        message = "No hand detected"
+        if results.multi_hand_landmarks:
+            if len(results.multi_handedness) == 2:
+                message = "very uergent"
+            else:
+                for i in results.multi_handedness:
+                    label = MessageToDict(i)['classification'][0]['label']
+                    if label == 'Left':
+                        message = "Not urgent"
+                    if label == 'Right':
+                        message = "urgent"
+
+        return jsonify({'message': message})
+
+    except Exception as e:
+        print(f"Error during prediction: {e}")
+        return jsonify({'error': 'Prediction failed'}), 500
+
+
+
 
 # Define route for image classification
 @app.route('/classifyImage', methods=['POST'])
